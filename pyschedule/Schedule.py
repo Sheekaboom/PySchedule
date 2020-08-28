@@ -8,6 +8,7 @@
 """
 
 import datetime
+import json
 
 #libs for exporting
 try:
@@ -32,17 +33,21 @@ class Schedule(dict):
     '''
     def __init__(self,*args,**kwargs):
         super().__init__()
-        if isinstance(args[0],Schedule): #instantiate as a class
-            self.update(Schedule)
-        else:
-            self['tasks'] = []
-            if isinstance(args[0],list):
-                for t in args[0]:
-                    self.add_task(t)
-            elif isinstance(args[0],Task):
-                self.add_task(args[0])
+        defaults = {
+            'tasks': [],
+            }
+        self.update(defaults)
+        if len(args):
+            if isinstance(args[0],Schedule): #instantiate as a class
+                self.update(Schedule)
             else:
-                raise TypeError("Unsupported input arguments")
+                if isinstance(args[0],list):
+                    for t in args[0]:
+                        self.add_task(t)
+                elif isinstance(args[0],Task):
+                    self.add_task(args[0])
+                else:
+                    raise TypeError("Unsupported input arguments")
         self.update(kwargs)
             
     def add_task(self,task,**kwargs):
@@ -57,13 +62,24 @@ class Schedule(dict):
         
         self['tasks'].append(task)
         
-    def sort_tasks(self,**kwargs):
+    def sort_tasks(self,verify=True,**kwargs):
         '''
         @brief sort tasks based on start time
         '''
+        if verify: [t.verify() for t in self['tasks']]
         end_sort = sorted(self['tasks'],key=lambda task: task.end) # sort by end date first
         self['tasks'] = sorted(end_sort,key=lambda task: task.start)
-        self['tasks'] = self['tasks'].sort(key=lambda task: task.start)
+        
+#%% IO functionality
+    
+    def load(self,fname):
+        '''
+        @brief load schedule from a json file
+        @param[in] fpath - path to json file to load
+        '''
+        with open(fname,'r') as fp:
+            json_data = json.load(fp, kwds)
+        
     
 #%% Export functionality
     def _get_as_lists(self):
@@ -74,16 +90,28 @@ class Schedule(dict):
         '''
         rd = {}
         rd['name'] = [task['name'] for task in self['tasks']]
+        rd['nickname'] = [task.get('nickname',None) for task in self['tasks']]
         rd['start'] = [task.start for task in self['tasks']]
         rd['end'] = [task.end for task in self['tasks']]
         rd['percent_complete'] = [task['progress']['percent'] for task in self['tasks']]
         return rd
+    
+    def _get_label_names(self,nicknames,names):
+        '''@brief use nicknames when available otherwise use full name'''
+        label_names = []
+        for i,n in enumerate(nicknames):
+            if n in [None,'','None']:
+                label_names.append(names[i])
+            else:
+                label_names.append(n)
+        return label_names
 
     def plot_plotly(self,**kwargs):
         '''@brief plot the gantt chart with plotly'''
         info_lists = self._get_as_lists()
+        names = self._get_label_names(info_lists['nickname'],info_lists['name'])
         fig = px.timeline(x_start=info_lists['start'],x_end=info_lists['end'], 
-                          y=info_lists['name'], color=info_lists['percent_complete'])
+                          y=names, color=info_lists['percent_complete'])
         fig.update_yaxes(autorange="reversed")
         fig.update_layout(
             shapes=[dict(x0=datetime.datetime.today(),

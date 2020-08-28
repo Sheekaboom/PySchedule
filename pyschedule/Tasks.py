@@ -9,34 +9,43 @@
 
 import datetime
 import numpy as np
+import re
+from typing import Union
 
 class Task(dict):
     '''
     @brief implementation of a Task in a schedule
-    @param[in] name - name of the task is required
+    @param[in] name - name of the task is required. This could be a dict to load from a dict
     @note all date/times are datetime.datetime objects or
-        in the format '%Y-%m-%d %H:%M:%S.%f'
+        in the format '%Y-%m-%d %H:%M:%S'. All timedeltas are datetime.timedelta
+        objects or strings in the format '%dd%H:%M:%S'
     @note 2 of the three (start/end/duration) can be specified
         when there are no dependencies
     @param[in/OPT] kwargs - keyword arguments as follows
+        - description - description of the task
         - start - start date/time 
         - end   - end date/time
-        - duration - duration in datetime.timedelta or '%d days, %H:%M:%S'
+        - duration - duration in datetime.timedelta or '%dd%H:%M:%S' (eg 90d0:0:0)
+        - nickname - shortened name for things like plotting
         - dependencies = [list of Dependency Objects]
         - progress - {percent:(0-100),notes: what the progress is}
         - risks - [{percent:possibility of failure(0-100),notes: whats the risk}]
-        - children - [list of Tasks that are part of this task]
         - todo - [list of Task objects that need to be completed]
         - deliverables - [list of deliverables that will come out of this task]
         - contributions - [what contributions these tasks will provide]
         - resources - [list of Resources that this requires]
+        - children - [list of Tasks that are part of this task]
     '''
-    def __init__(self,name:str,start:datetime.datetime=None,end:datetime.datetime=None,
+    def __init__(self,name:Union[str,dict],start:datetime.datetime=None,end:datetime.datetime=None,
                  duration:datetime.timedelta=None,**kwargs):
         '''@brief constructor'''
-        super().__init__({'name':name,'start':start,'end':end,'duration':duration})
-        # add our defaults
+        super().__init__()
+        #default values
         defaults = {
+            'name': name,
+            'start': start,
+            'end': end,
+            'duration': duration,
             'dependencies':[],
             'children':[],
             'progress':{'percent':0,'notes':None},
@@ -45,10 +54,38 @@ class Task(dict):
             'deliverables': [],
             'contributions': [],
             'resources': [],
+            'nickname':None
             }
         self.update(defaults)
+        #load from dict if name is dict
+        if isinstance(name,dict):
+            self.update(name)
         #update from inputs
         self.update(kwargs)
+        #make sure all times are converted to datetime objects
+        self._load_datetimes()
+        #ensure dependencies are of the correct class
+        for i,dep in enumerate(self['dependencies']):
+            if not isinstance(dep,Dependency):
+                self['dependencies'][i] = Dependency(**dep) #unpack for required args
+        #ensure children are tasks
+        for i,task in enumerate(self['children']):
+            if not isinstance(task,Task):
+                self['children'][i] = Task(task)
+                
+    def _load_datetimes(self):
+        '''@brief convert any datetime strings or durations to datetime objects'''
+        datetime_fields = ['start','end']
+        duration_fields = ['duration']
+        undefined_types = [None,'','None'] #types that mean the datetime isnt provided
+        # fix any datetimes into datetime objects
+        for field in datetime_fields:
+            if isinstance(self[field],str) and self[field] not in undefined_types:
+                self[field] = datetime.datetime.strptime(self[field],'%Y-%m-%d %H:%M:%S')
+        for field in duration_fields:
+            if isinstance(self[field],str) and self[field] not in undefined_types:
+                td = [int(v) for v in re.split('(d|:)',self[field])[::2]]
+                self[field] = datetime.timedelta(days=td[0],hours=td[1],minutes=td[2],seconds=td[3])
         
     def add_dependency(self,dep,update=True):
         '''@brief add a dependency object to the task'''
@@ -75,6 +112,7 @@ class Task(dict):
         if num_nuns < 1:
             raise Exception("Overdefined times, Start/End/Duration cannot all be defined.")
         
+        
     # properties to return times if not provided
     @property
     def start(self):
@@ -97,6 +135,14 @@ class Task(dict):
         if dur is None:
             dur = self.end-self.start
         return dur
+    @property
+    def progress(self):
+        '''@brief return the progress. If not defined try to average children'''
+        progress_dict = self.get('progress',{'percent':0,'notes':''})
+        if progress_dict['percent']==0:
+            progress_dict['percent'] = np.round(np.mean([st.progress['percent'] for st in self['children']]))
+            progress_dict['notes'] = '#mean([children[progress]])'
+        return progress_dict
     
     def __str__(self):
         '''@brief return name for string'''
@@ -115,13 +161,13 @@ class Dependency(dict):
         - endsAfter    - Must end after dep_name ends
     @note the most likely type will be startsAfter
     '''
-    def __init__(self,dep_task:Task,dep_type:str):
+    def __init__(self,task:Task,type:str):
         '''@brief constructor'''
         allowed_types = ['startsBefore','startsWith','startsAfter',
                          'endsBefore'  ,'endsWith'  ,'endsAfter'  ]
-        if dep_type not in allowed_types:
-            raise Exception("{} is not an allowable type of dependency".format(dep_type))
-        super().__init__(task=dep_task,type=dep_type)
+        if type not in allowed_types:
+            raise Exception("{} is not an allowable type of dependency".format(type))
+        super().__init__(task=task,type=type)
     
     def get_dependency(self):
         '''@brief get a dependency time given a task'''
