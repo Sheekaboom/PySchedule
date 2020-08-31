@@ -15,6 +15,11 @@ try:
     import plotly.express as px #REQUIRES PLOTLY 4.9 or ABOVE
 except ModuleNotFoundError:
     print("Plotly Not Available")
+    
+try:
+    import xlsxwriter
+except ModuleNotFoundError:
+    print("XslxWriter Not Available (no Excel capability)")
 
 
 from pyschedule.Tasks import Task, Dependency
@@ -125,6 +130,21 @@ class Schedule(Task):
             )
         
         return fig
+    
+    def plot_excel(self,fpath,**kwargs):
+        '''
+        @brief create a gantt chart from an excel spreadsheet
+        @param[in] fpath - path to file to write spreadsheet to
+        '''
+        wb = xlsxwriter.Workbook(fpath)
+        ws = workbook.add_worksheet()
+        row=0; col=0
+        for task in self.tasks:
+            ws.write(row,col,task.nickname)
+            row+=1
+            
+            
+        
         
             
 #%% Testing

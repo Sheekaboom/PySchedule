@@ -21,7 +21,7 @@ def load_dependencies(task_list):
     @note any dependency should match the name of the task it depends on
     @note THIS WILL NOT VERIFY THE TASK. You should run .verify() separately
     @note this will run _unpack_children to load run for all children also
-    @note non object dependencies expect {'task':'task_name','type':'startsWith'|'startsAfter'|...}
+    @note non object dependencies expect {'task':task_id|task_name,'type':'startsWith'|'startsAfter'|...}
     @param[in] task_list - list of Tasks that have dependencies. All dependent tasks
         MUST be inside of this list
     @return list of Tasks with correlated object dependencies. These should also be updated in place
@@ -33,14 +33,16 @@ def load_dependencies(task_list):
         tl_in.append(t)
         tl_in += t._unpack_children()
     tl_out = []
-    tl_names = [t['name'] for t in tl_in]
+    tl_ids = []
+    for t in tl_in: #create our ids. look for 'id' input first otherwise try to match by name
+        tl_ids.append(t.get('id',t.get('name',None)))
     for t in tl_in:
         for i in range(len(t['dependencies'])):
             if not isinstance(t['dependencies'][i],Dependency): #first check if its a dependency
                 dep = t['dependencies'][i]
-                dep_task_idx = np.where(np.array(tl_names)==dep['task'])[0]
+                dep_task_idx = np.where(np.array(tl_ids)==dep['task'])[0]
                 if not len(dep_task_idx):
-                    raise Exception("Task index is {}. This message likely means the task named '{}' wasn't found.".format(dep_task_idx,dep['task']))
+                    raise Exception("Task index is {}. This message likely means the dependency '{}' for {} wasn't found.".format(dep_task_idx,dep['task'],repr(t)))
                 dep_task = tl_in[dep_task_idx[0]]
                 if not dep_task:
                     raise Exception("Task '{}' not found".format(dep['task']))
@@ -166,7 +168,10 @@ class Task(dict):
         # update self dependencies twice to cover children depending on parent
         # and parent depending on children
         for d in self['dependencies']:
-            dvals.update(d.get_dependency())
+            if isinstance(d,Dependency):
+                dvals.update(d.get_dependency())
+            else:
+                raise TypeError('Dependencies must be of type {} not {}. Running load_dependencies may be required'.format(Dependency,type(d)))
         self.update(dvals)
         #recursively update children first
         # do not verify though because children do not need to define dates
@@ -185,13 +190,13 @@ class Task(dict):
         sed_vals = [getattr(self,k)(False) for k in ['get_start','get_end','get_duration']]
         num_nuns = len([v for v in sed_vals if v is None]) #number of None values
         if num_nuns < 1: 
-            raise Exception("Overdefined times for '{}', Start/End/Duration cannot all be defined.".format(self['name'])+
+            raise Exception("Overdefined times for '{}', Start/End/Duration cannot all be defined.".format(repr(self))+
                             " Some of these may be defined from added dependencies.\n"+
                             "    -Start    = {}\n".format(sed_vals[0])+
                             "    -End      = {}\n".format(sed_vals[1])+
                             "    -Duration = {}\n".format(sed_vals[2]))
         if num_nuns > 1:
-            raise Exception("Underdefined times for '{}'. Running self.update_from_dependencies may fix this.\n".format(self['name'])+
+            raise Exception("Underdefined times for '{}'. Running self.update_from_dependencies may fix this.\n".format(repr(self))+
                             "    -Start    = {}\n".format(sed_vals[0])+
                             "    -End      = {}\n".format(sed_vals[1])+
                             "    -Duration = {}\n".format(sed_vals[2]))
@@ -285,6 +290,14 @@ class Task(dict):
             progress_dict['percent'] = np.round(np.mean([st.progress['percent'] for st in self['children']]))
             progress_dict['notes'] = '#mean([children[progress]])'
         return progress_dict
+    
+    @property
+    def nickname(self):
+        '''@brief return the nickname or name if it is none'''
+        nick = self.get('nickname',None)
+        if nick in self.undefined_vals:
+            nick = self.get('name')
+        return nick
     
     def __str__(self):
         '''@brief return name for string'''
