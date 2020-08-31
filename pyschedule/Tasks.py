@@ -8,9 +8,50 @@
 """
 
 import datetime
+import json
 import numpy as np
 import re
 from typing import Union
+
+#%% Some useful functions
+
+def load_dependencies(task_list):
+    '''
+    @brief take a list of tasks and correlate their dependencies to the task objects
+    @note any dependency should match the name of the task it depends on
+    @note THIS WILL NOT VERIFY THE TASK. You should run .verify() separately
+    @note this will run _unpack_children to load run for all children also
+    @note non object dependencies expect {'task':'task_name','type':'startsWith'|'startsAfter'|...}
+    @param[in] task_list - list of Tasks that have dependencies. All dependent tasks
+        MUST be inside of this list
+    @return list of Tasks with correlated object dependencies. These should also be updated in place
+    '''
+    if isinstance(task_list,Task): #if its a single task, make a 1 element list
+        task_list = [task_list]
+    tl_in = []
+    for t in task_list:
+        tl_in.append(t)
+        tl_in += t._unpack_children()
+    tl_out = []
+    tl_names = [t['name'] for t in tl_in]
+    for t in tl_in:
+        for i in range(len(t['dependencies'])):
+            if not isinstance(t['dependencies'][i],Dependency): #first check if its a dependency
+                dep = t['dependencies'][i]
+                dep_task_idx = np.where(np.array(tl_names)==dep['task'])[0]
+                if not len(dep_task_idx):
+                    raise Exception("Task index is {}. This message likely means the task named '{}' wasn't found.".format(dep_task_idx,dep['task']))
+                dep_task = tl_in[dep_task_idx[0]]
+                if not dep_task:
+                    raise Exception("Task '{}' not found".format(dep['task']))
+                t['dependencies'][i] = Dependency(dep_task,dep['type'])
+        tl_out.append(t)
+    for t in task_list:
+        t.update_from_dependencies(verify=False)
+    return tl_out
+    
+
+#%% Tasks for scheduling
 
 class Task(dict):
     '''
@@ -36,6 +77,9 @@ class Task(dict):
         - resources - [list of Resources that this requires]
         - children - [list of Tasks that are part of this task]
     '''
+    
+    undefined_vals = [None,'','None']
+    
     def __init__(self,name:Union[str,dict],start:datetime.datetime=None,end:datetime.datetime=None,
                  duration:datetime.timedelta=None,**kwargs):
         '''@brief constructor'''
@@ -64,14 +108,23 @@ class Task(dict):
         self.update(kwargs)
         #make sure all times are converted to datetime objects
         self._load_datetimes()
-        #ensure dependencies are of the correct class
-        for i,dep in enumerate(self['dependencies']):
-            if not isinstance(dep,Dependency):
-                self['dependencies'][i] = Dependency(**dep) #unpack for required args
         #ensure children are tasks
         for i,task in enumerate(self['children']):
             if not isinstance(task,Task):
                 self['children'][i] = Task(task)
+                
+    @staticmethod
+    def load(fpath):
+        '''
+        @brief load a task from a json file
+        @param[in] fpath - file path to load in
+        @todo allowing for saving and loading of dependencies
+        @return Task Object
+        @example Task.load(fpath)
+        '''
+        with open(fpath,'r') as fp:
+            json_data = json.load(fp)
+        return Task(json_data)
                 
     def _load_datetimes(self):
         '''@brief convert any datetime strings or durations to datetime objects'''
@@ -87,54 +140,143 @@ class Task(dict):
                 td = [int(v) for v in re.split('(d|:)',self[field])[::2]]
                 self[field] = datetime.timedelta(days=td[0],hours=td[1],minutes=td[2],seconds=td[3])
         
+    def _unpack_children(self):
+        '''@brief return a recursive list of all subtasks (useful for dependencies)'''
+        child_list = self['children']
+        for t in self['children']:
+            child_list += t['children']
+        return child_list
+        
     def add_dependency(self,dep,update=True):
         '''@brief add a dependency object to the task'''
         self['dependencies'].append(dep)
         if update: #update our dates when a dependency is added
             self.update_from_dependencies()
         
-    def update_from_dependencies(self,verify=True):
-        '''@brief update times based on dependencies'''
+    def update_from_dependencies(self,verify=True,update_children=True):
+        '''
+        @brief update times based on dependencies. Update children recursively
+        @param[in/OPT] verify - run self.verify() (default True)
+        @param[in/OPT] update_children - whether or not to update children
+        @note this updates the parent twice to ensure that both the parent can
+            depend and children and children on parent
+        '''
         dep_times = {'start':None,'end':None,'duration':None}
         dvals = {}
+        # update self dependencies twice to cover children depending on parent
+        # and parent depending on children
+        for d in self['dependencies']:
+            dvals.update(d.get_dependency())
+        self.update(dvals)
+        #recursively update children first
+        # do not verify though because children do not need to define dates
+        if update_children:
+            for c in self['children']:
+                c.update_from_dependencies(verify=False,update_children=True)
+        # update the dependencies
         for d in self['dependencies']:
             dvals.update(d.get_dependency())
         self.update(dvals)
         if verify: #verify our times
             self.verify()
             
-    def verify(self):
+    def verify(self,verbose=False):
         '''@brief verify the task times are not overdefined'''
-        sed_vals = [self.get(k,None) for k in ['start','end','duration']]
+        sed_vals = [getattr(self,k)(False) for k in ['get_start','get_end','get_duration']]
         num_nuns = len([v for v in sed_vals if v is None]) #number of None values
-        if num_nuns > 1: 
-            raise Exception("Underdefined times, this could be due to not updating dependencies.")
-        if num_nuns < 1:
-            raise Exception("Overdefined times, Start/End/Duration cannot all be defined.")
+        if num_nuns < 1: 
+            raise Exception("Overdefined times for '{}', Start/End/Duration cannot all be defined.".format(self['name'])+
+                            " Some of these may be defined from added dependencies.\n"+
+                            "    -Start    = {}\n".format(sed_vals[0])+
+                            "    -End      = {}\n".format(sed_vals[1])+
+                            "    -Duration = {}\n".format(sed_vals[2]))
+        if num_nuns > 1:
+            raise Exception("Underdefined times for '{}'. Running self.update_from_dependencies may fix this.\n".format(self['name'])+
+                            "    -Start    = {}\n".format(sed_vals[0])+
+                            "    -End      = {}\n".format(sed_vals[1])+
+                            "    -Duration = {}\n".format(sed_vals[2]))
+        if verbose: print("    -Start    = {}\n".format(sed_vals[0])+
+                          "    -End      = {}\n".format(sed_vals[1])+
+                          "    -Duration = {}\n".format(sed_vals[2]))
         
         
-    # properties to return times if not provided
-    @property
-    def start(self):
-        '''@brief return the start datetime'''
+#%% Return calculated times (and properties for those values)
+    def get_start(self,calc_flg):
+        '''
+        @brief return the start datetime
+        @param[in] calc_flg - calculate from other values if not available
+        @note calc_flg should be false except for top call to prevent endless loop
+        '''
+        #try and get from the value
         start = self.get('start',None)
-        if start is None:
-            start = self.end-self.duration
+        if start not in self.undefined_vals:
+            return start
+        #try and get from children
+        child_times = [child.start for child in self['children']]
+        if child_times and np.any(np.array(child_times)!=None):
+            return child_times[np.argmin(child_times)]
+        # try to calculate
+        if calc_flg:
+            end = self.get_end(False)
+            dur = self.get_duration(False)
+            if None not in [end,dur]:
+                start = end-dur
+            else:
+                start = None
         return start 
-    @property
-    def end(self):
-        '''@brief return end datetime'''
+    
+    def get_end(self,calc_flg):
+        '''
+        @brief return end datetime
+        @param[in] calc_flg - calculate from other values if not available
+        @note calc_flg should be false except for top call to prevent endless loop
+        '''
+        #try and get from the value
         end = self.get('end',None)
-        if end is None:
-            end = self.start+self.duration
+        if end not in self.undefined_vals:
+            return end
+        #try and get from children
+        child_times = [child.end for child in self['children'] if child.end is not None]
+        if child_times:
+            return child_times[np.argmax(child_times)]
+        # try to calculate
+        if calc_flg:
+            start = self.get_start(False)
+            dur   = self.get_duration(False)
+            if None not in [start,dur]:
+                end = start+dur
+            else:
+                end = None
         return end
-    @property
-    def duration(self):
-        '''@brief return duration timedelta'''
+    
+    def get_duration(self,calc_flg):
+        '''
+        @brief return duration timedelta
+        @param[in] calc_flg - calculate from other values if not available
+        @note calc_flg should be false except for top call to prevent endless loop
+        '''
+        #try and get from the value
         dur = self.get('duration',None)
-        if dur is None:
-            dur = self.end-self.start
+        if dur is not None:
+            return dur
+        # try to calculate
+        if calc_flg:
+            end   = self.get_end(False)
+            start = self.get_start(False)
+            if None not in [end,start]:
+                dur = end-start
+            else:
+                dur = None
         return dur
+    
+    @property 
+    def start(self): return self.get_start(True)
+    @property
+    def end(self): return self.get_end(True)
+    @property
+    def duration(self): return self.get_duration(True)
+    
+#%% Other calculated properties    
     @property
     def progress(self):
         '''@brief return the progress. If not defined try to average children'''
@@ -147,7 +289,18 @@ class Task(dict):
     def __str__(self):
         '''@brief return name for string'''
         return self['name']
+    
+    def __repr__(self):
+        return 'Task("{}" at {})'.format(str(self),id(self))
 
+class TaskEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime.timedelta):
+            return str(obj).replace(' days, ','d')
+        # Let the base class default method raise the TypeError
+        return json.JSONEncoder.default(self, obj)
+
+#%% Dependencies
 class Dependency(dict):
     '''
     @brief dependencies tasks may have on one another
@@ -192,6 +345,12 @@ class Dependency(dict):
         '''@brief calculate date on endsAfter'''
         return {'end':task.end}
     
+    def __str__(self):
+        return str({'task':str(self['task']),'type':self['type']})
+    
+    def __repr__(self):
+        return 'Dependency({})'.format({'task':repr(self['task']),'type':self['type']})
+    
 #%% Unit testing
 
 import unittest
@@ -209,13 +368,28 @@ class TestTasks(unittest.TestCase):
 
 if __name__=='__main__':
     
+    test_path = r"C:\Users\aweis\Google Drive\GradWork\PhD\schedule\tasks\ofdm_simulation.json"
+    lt = Task.load(test_path)
+    
     t1 = Task('task1',start=datetime.datetime.today()
               ,duration=datetime.timedelta(days=7))
     t2 = Task('task2',duration=datetime.timedelta(days=14))
     t3 = Task('task3',duration=datetime.timedelta(days=31))
     
+    t4 = Task('task4',duration=datetime.timedelta(days=20),dependencies=[{'task':'task2','type':'startsAfter'}])
+    
+    tunder = Task('Underdefined',duration=datetime.timedelta(days=14))
+    #tunder.verify()
+    tover = Task('Overdefined',start=datetime.datetime.today(),end=datetime.datetime.today(),duration=datetime.timedelta(days=10))
+    #tover.verify()
+    
     t2.add_dependency(Dependency(t1,'startsAfter'))
     t3.add_dependency(Dependency(t2,'startsAfter'))
+    
+    tl = load_dependencies([t4,t3,t2])
+    
+    
+    
     
 
 

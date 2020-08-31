@@ -19,10 +19,11 @@ except ModuleNotFoundError:
 
 from pyschedule.Tasks import Task, Dependency
 
-class Schedule(dict):
+class Schedule(Task):
     '''
     @brief class to hold a list of tasks along with 
         metadata for a schedule
+    @param[in] name - name of the Schedule
     @param[in] args - variable input arguments can be 
         of the following types:
             - Tasks - multiple inputs of Task type to put in a schedule
@@ -31,12 +32,8 @@ class Schedule(dict):
             - String - a path to a schedule to load in
     @param[in/OPT] kwargs - key/value pairs to be added as metadata
     '''
-    def __init__(self,*args,**kwargs):
-        super().__init__()
-        defaults = {
-            'tasks': [],
-            }
-        self.update(defaults)
+    def __init__(self,name,*args,**kwargs):
+        super().__init__(name,**kwargs)
         if len(args):
             if isinstance(args[0],Schedule): #instantiate as a class
                 self.update(Schedule)
@@ -59,16 +56,20 @@ class Schedule(dict):
         '''
         if not isinstance(task,Task):raise TypeError
         deps = task['dependencies']
+        task.verify()
+        self['children'].append(task)
         
-        self['tasks'].append(task)
+    @property
+    def tasks(self):
+        return self['children']
         
     def sort_tasks(self,verify=True,**kwargs):
         '''
         @brief sort tasks based on start time
         '''
-        if verify: [t.verify() for t in self['tasks']]
-        end_sort = sorted(self['tasks'],key=lambda task: task.end) # sort by end date first
-        self['tasks'] = sorted(end_sort,key=lambda task: task.start)
+        if verify: [t.verify() for t in self.tasks]
+        end_sort = sorted(self.tasks,key=lambda task: task.end) # sort by end date first
+        self['children'] = sorted(end_sort,key=lambda task: task.start)
         
 #%% IO functionality
     
@@ -89,11 +90,11 @@ class Schedule(dict):
                      'percent_complete':[task['progress']['percent']])
         '''
         rd = {}
-        rd['name'] = [task['name'] for task in self['tasks']]
-        rd['nickname'] = [task.get('nickname',None) for task in self['tasks']]
-        rd['start'] = [task.start for task in self['tasks']]
-        rd['end'] = [task.end for task in self['tasks']]
-        rd['percent_complete'] = [task['progress']['percent'] for task in self['tasks']]
+        rd['name'] = [task['name'] for task in self.tasks]
+        rd['nickname'] = [task.get('nickname',None) for task in self.tasks]
+        rd['start'] = [task.start for task in self.tasks]
+        rd['end'] = [task.end for task in self.tasks]
+        rd['percent_complete'] = [task['progress']['percent'] for task in self.tasks]
         return rd
     
     def _get_label_names(self,nicknames,names):
@@ -144,7 +145,7 @@ if __name__=='__main__':
     t2.add_dependency(Dependency(t1,'startsAfter'))
     t3.add_dependency(Dependency(t1,'startsAfter'))
 
-    mySchedule = Schedule([t1,t2,t3])
+    mySchedule = Schedule('PhD Roadmap',[t1,t2,t3])
     fig = mySchedule.plot_plotly()
     fig.show(renderer='svg')
 
