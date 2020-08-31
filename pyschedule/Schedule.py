@@ -88,18 +88,18 @@ class Schedule(Task):
         
     
 #%% Export functionality
-    def _get_as_lists(self):
+    def _get_as_lists(self,tasks):
         '''
         @brief get fields from the schedule as lists. Typically useful for exporting/plotting
         @return dict('name':[names],'start':[task.start],'end':[task.end],
                      'percent_complete':[task['progress']['percent']])
         '''
         rd = {}
-        rd['name'] = [task['name'] for task in self.tasks]
-        rd['nickname'] = [task.get('nickname',None) for task in self.tasks]
-        rd['start'] = [task.start for task in self.tasks]
-        rd['end'] = [task.end for task in self.tasks]
-        rd['percent_complete'] = [task['progress']['percent'] for task in self.tasks]
+        rd['name'] = [task['name'] for task in tasks]
+        rd['nickname'] = [task.get('nickname',None) for task in tasks]
+        rd['start'] = [task.start for task in tasks]
+        rd['end'] = [task.end for task in tasks]
+        rd['percent_complete'] = [task.progress['percent'] for task in tasks]
         return rd
     
     def _get_label_names(self,nicknames,names):
@@ -112,9 +112,18 @@ class Schedule(Task):
                 label_names.append(n)
         return label_names
 
-    def plot_plotly(self,**kwargs):
+    def plot_plotly(self,level=0,**kwargs):
         '''@brief plot the gantt chart with plotly'''
-        info_lists = self._get_as_lists()
+        tasks = self.tasks
+        if level>0:
+            for l in range(level):
+                lt = []
+                for t in tasks:
+                    lt+= t['children']
+                tasks = lt
+        if level<0:
+            tasks = self._unpack_children()
+        info_lists = self._get_as_lists(tasks)
         names = self._get_label_names(info_lists['nickname'],info_lists['name'])
         fig = px.timeline(x_start=info_lists['start'],x_end=info_lists['end'], 
                           y=names, color=info_lists['percent_complete'])
@@ -140,7 +149,7 @@ class Schedule(Task):
         ws = workbook.add_worksheet()
         row=0; col=0
         for task in self.tasks:
-            ws.write(row,col,task.nickname)
+            ws.write(row,col,task.nickname) 
             row+=1
             
             

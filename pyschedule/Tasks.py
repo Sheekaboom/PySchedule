@@ -285,8 +285,8 @@ class Task(dict):
     @property
     def progress(self):
         '''@brief return the progress. If not defined try to average children'''
-        progress_dict = self.get('progress',{'percent':0,'notes':''})
-        if progress_dict['percent']==0:
+        progress_dict = self.get('progress',{'percent':None,'notes':''})
+        if progress_dict['percent'] in self.undefined_vals:
             progress_dict['percent'] = np.round(np.mean([st.progress['percent'] for st in self['children']]))
             progress_dict['notes'] = '#mean([children[progress]])'
         return progress_dict
