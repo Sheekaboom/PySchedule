@@ -9,6 +9,7 @@
 
 import datetime
 import json
+import numpy as np
 
 #libs for exporting
 try:
@@ -23,6 +24,28 @@ except ModuleNotFoundError:
 
 
 from pyschedule.Tasks import Task, Dependency, unpack_children_with_levels
+
+#%% Some extended datetime functionality
+
+def get_range_ymd(start,stop):
+    '''
+    @brief get years, months, and days from a range of start/stop dates
+    @return [y1,y2],[[m1y1,m2y1,m3y1,...],[m1y2,m2y2,m3y2,...]],[[[m1y1d1,...],[m2y1d1,...]],][[m1y2d1,...],[m2y2d1,...]],...]
+        (e.g. year=years[yi] month=months[yi][mi] day=days[yi][mi][di])
+    '''
+    date_range = np.arange(start,stop+datetime.timedelta(days=1),datetime.timedelta(days=1))
+    dates = np.unique(np.datetime_as_string(date_range,'D')) #unique year/months
+    dtdates = [datetime.datetime.strptime(date,'%Y-%m-%d') for date in dates]
+    years = np.unique([date.year for date in dtdates]) #get unique years
+    year_split = [[date for date in dtdates if date.year==year] for year in years]
+    months = [np.unique([date.month for date in year]) for year in year_split]
+    months_str = [np.unique([date.strftime('%b') for date in year]) for year in year_split]
+    month_split = [[[date for date in year if date.month==month] for month in months[yi]] for yi,year in enumerate(year_split)]
+    days = [[[day.strftime('%d') for day in month] for month in year] for year in month_split]
+    return years,months_str,days
+
+
+#%% now our schedule class
 
 class Schedule(Task):
     '''
@@ -150,18 +173,81 @@ class Schedule(Task):
         '''
         wb = xlsxwriter.Workbook(fpath)
         ws = wb.add_worksheet()
-        row=0; col=0
+        
+        # Lets first load everything so we know the sizes of tasks, times, etc
+        ## Load our tasks
         tasks,levels = unpack_children_with_levels(self,-1)
-        label_range = [min(levels),max(levels)]
+        task_levels = max(levels)-min(levels)+1
+        ## Now get date/time range 
+        years,months,days = get_range_ymd(self.start, self.end)
+        time_cols = np.size(months)
+        
+        # Set up the formatting
+        ## Header Formatting
+        head_fmt = wb.add_format({'bold':True,'align':'center'})
+        ## Task formatting
+        task_col_fmt = wb.add_format({'text_wrap':True})
+        ## Date Header Formatting
+        date_head_fmt = head_fmt
+        
+        # Now lets set the sizes of everything
+        ## Our header
+        head_row_start = 0; 
+        head_col_start = 0
+        head_rows = 2; 
+        head_cols = task_levels 
+        head_row_end = head_row_start+head_rows-1
+        head_col_end = head_col_start+head_cols-1
+        ## Our tasks
+        task_row_start = head_row_start+head_rows;
+        task_col_start = 0
+        task_rows = len(tasks)
+        task_cols = task_levels 
+        task_row_end = task_row_start+task_rows-1
+        task_col_end = task_col_start+task_cols-1
+        ## Date header
+        date_head_row_start = 0
+        date_head_col_start = head_col_end+1
+        date_head_rows = head_rows 
+        date_head_cols = sum([len(month) for month in months])
+        ## Date range
+        date_range_row_start = date_head_row_start+date_head_rows
+        date_range_col_start = date_head_col_start 
+        date_range_rows = task_rows
+        date_range_cols = date_head_cols
+        ## Totals
+        total_row_start = 0
+        total_col_start = 0
+        total_rows = head_rows+task_rows
+        total_cols = date_head_col_start+date_head_cols
+        
+        # now write out values
+        ## Write our header
+        ws.write(head_row_start,head_col_start,"Tasks",head_fmt)
+        ## Write our date header
+        date_head_col = date_head_col_start; date_head_row = date_head_row_start
+        for yi,y in enumerate(years):
+            ws.merge_range(date_head_row,date_head_col,date_head_row,date_head_col+len(months[yi])-1,y,date_head_fmt)
+            month_col = date_head_col
+            for month in months[yi]:
+                ws.write(date_head_row+1,month_col,month,date_head_fmt)
+                month_col += 1
+            date_head_col += len(months[yi])
+        ## Write out our tasks
+        task_row=task_row_start; task_col=task_col_start
         for t,l in zip(tasks,levels):
-            ws.write(row,col+l,t.nickname)
+            ws.write(task_row,task_col+l,t.nickname)
             print(' '*2*l+t['name'])
-            row += 1
-                
-        # now some formatting
-        label_fmt = wb.add_format({'text_wrap':True})
-        ws.set_column(label_range[0],label_range[1],20,label_fmt)
+            task_row += 1
+        ws.set_column(task_col_start,task_col_end,20,task_col_fmt)
+        
+        #Draw our borders
+        hard_border_bottom = wb.add_format({'border':5})
+        
+        # finally close the workbook
         wb.close()
+                
+        
             
             
         

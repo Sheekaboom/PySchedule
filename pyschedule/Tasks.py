@@ -71,7 +71,6 @@ def unpack_children_with_levels(task,level):
         levels += clev
     return ctasks,levels
     
-
 #%% Tasks for scheduling
 
 class Task(dict):
