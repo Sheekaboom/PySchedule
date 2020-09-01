@@ -22,7 +22,7 @@ except ModuleNotFoundError:
     print("XslxWriter Not Available (no Excel capability)")
 
 
-from pyschedule.Tasks import Task, Dependency
+from pyschedule.Tasks import Task, Dependency, unpack_children_with_levels
 
 class Schedule(Task):
     '''
@@ -149,11 +149,23 @@ class Schedule(Task):
         @param[in] fpath - path to file to write spreadsheet to
         '''
         wb = xlsxwriter.Workbook(fpath)
-        ws = workbook.add_worksheet()
+        ws = wb.add_worksheet()
         row=0; col=0
+        label_range = [0,0]
         for task in self.tasks:
-            ws.write(row,col,task.nickname) 
-            row+=1
+            children,levels = unpack_children_with_levels(task,0)
+            curtasks = [task]+children
+            curlevels = [0]+levels
+            if max(curlevels)>label_range[1]: label_range[1] = max(curlevels)
+            for t,l in zip(curtasks,curlevels):
+                ws.write(row,col+l,t.nickname)
+                print(' '*2*l+t['name'])
+                row += 1
+                
+        # now some formatting
+        label_fmt = wb.add_format({'text_wrap':True})
+        ws.set_column(label_range[0],label_range[1],20,label_fmt)
+        wb.close()
             
             
         

@@ -51,6 +51,24 @@ def load_dependencies(task_list):
     for t in task_list:
         t.update_from_dependencies(verify=False)
     return tl_out
+
+def unpack_children_with_levels(task,level):
+    '''
+    @brief unpack our children along with levels recursively
+    @param[in] task - task to unpack from
+    @param[in] level - what level this task is on
+    @return [c1task,cc1task,cc2task,c2task,cc1task],[1,2,2,1,2] (example)
+    '''
+    children = task['children']
+    ctasks = []
+    levels = []
+    for child in children:#now add in our children
+        cct,clev = unpack_children_with_levels(child,level+1)
+        ctasks.append(child)
+        ctasks += cct
+        levels.append(level+1)
+        levels += clev
+    return ctasks,levels
     
 
 #%% Tasks for scheduling
@@ -146,7 +164,7 @@ class Task(dict):
         '''@brief return a recursive list of all subtasks (useful for dependencies)'''
         child_list = self['children']
         for t in self['children']:
-            child_list += t['children']
+            child_list += t._unpack_children()
         return child_list
         
     def add_dependency(self,dep,update=True):
