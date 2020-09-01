@@ -151,16 +151,12 @@ class Schedule(Task):
         wb = xlsxwriter.Workbook(fpath)
         ws = wb.add_worksheet()
         row=0; col=0
-        label_range = [0,0]
-        for task in self.tasks:
-            children,levels = unpack_children_with_levels(task,0)
-            curtasks = [task]+children
-            curlevels = [0]+levels
-            if max(curlevels)>label_range[1]: label_range[1] = max(curlevels)
-            for t,l in zip(curtasks,curlevels):
-                ws.write(row,col+l,t.nickname)
-                print(' '*2*l+t['name'])
-                row += 1
+        tasks,levels = unpack_children_with_levels(self,-1)
+        label_range = [min(levels),max(levels)]
+        for t,l in zip(tasks,levels):
+            ws.write(row,col+l,t.nickname)
+            print(' '*2*l+t['name'])
+            row += 1
                 
         # now some formatting
         label_fmt = wb.add_format({'text_wrap':True})

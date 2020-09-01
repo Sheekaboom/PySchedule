@@ -168,7 +168,8 @@ class Task(dict):
         
     def _unpack_children(self):
         '''@brief return a recursive list of all subtasks (useful for dependencies)'''
-        child_list = self['children']
+        child_list = []
+        child_list += self['children']
         for t in self['children']:
             child_list += t._unpack_children()
         return child_list
@@ -414,6 +415,21 @@ if __name__=='__main__':
     t3 = Task('task3',duration=datetime.timedelta(days=31))
     
     t4 = Task('task4',duration=datetime.timedelta(days=20),dependencies=[{'task':'task2','type':'startsAfter'}])
+    
+    t5 = Task(
+            {
+                "name":"task5",
+                "start":"2020-05-05 0:0:0",
+                "children":[
+                    {"name": "task05","duration":"7d0:0:0","dependencies":[{"task":"task5","type":"startsWith"}]},
+                    {"name": "task15","duration":"7d0:0:0","dependencies":[{"task":"task05","type":"startsAfter"}]},
+                    {"name": "task25","duration":"7d0:0:0","dependencies":[{"task":"task15","type":"startsAfter"}]},
+                    {"name": "task35","duration":"7d0:0:0","dependencies":[{"task":"task25","type":"startsAfter"}]}
+                    ]}
+        )
+    load_dependencies(t5)
+    
+    tpar = Task('parent',children=[t5,t4])
     
     tunder = Task('Underdefined',duration=datetime.timedelta(days=14))
     #tunder.verify()
