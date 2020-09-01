@@ -9,6 +9,7 @@
 
 import datetime
 import json
+import os
 import numpy as np
 import re
 from typing import Union
@@ -77,6 +78,7 @@ class Task(dict):
     '''
     @brief implementation of a Task in a schedule
     @param[in] name - name of the task is required. This could be a dict to load from a dict
+        If this is a valid path, it will be loaded from a json file
     @note all date/times are datetime.datetime objects or
         in the format '%Y-%m-%d %H:%M:%S'. All timedeltas are datetime.timedelta
         objects or strings in the format '%dd%H:%M:%S'
@@ -124,6 +126,10 @@ class Task(dict):
         #load from dict if name is dict
         if isinstance(name,dict):
             self.update(name)
+        elif os.path.exists(name):
+            with open(name) as fp:
+                json_data = json.load(fp)
+            self.update(json_data)
         #update from inputs
         self.update(kwargs)
         #make sure all times are converted to datetime objects
