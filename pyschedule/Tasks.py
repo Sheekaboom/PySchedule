@@ -94,7 +94,7 @@ class Task(dict):
             'duration': duration,
             'dependencies':[],
             'children':[],
-            'progress':{'percent':0,'notes':None},
+            'progress':{'percent':None,'notes':None},
             'risks': [],
             'todo': [],
             'deliverables': [],

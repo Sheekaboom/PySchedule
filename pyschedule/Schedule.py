@@ -114,15 +114,18 @@ class Schedule(Task):
 
     def plot_plotly(self,level=0,**kwargs):
         '''@brief plot the gantt chart with plotly'''
-        tasks = self.tasks
+        t0 = self.tasks
+        tasks = []
         if level>0:
             for l in range(level):
                 lt = []
-                for t in tasks:
+                for t in t0:
                     lt+= t['children']
                 tasks = lt
         if level<0:
-            tasks = self._unpack_children()
+            for t in t0:
+                tasks.append(t)
+                tasks += t._unpack_children()
         info_lists = self._get_as_lists(tasks)
         names = self._get_label_names(info_lists['nickname'],info_lists['name'])
         fig = px.timeline(x_start=info_lists['start'],x_end=info_lists['end'], 
