@@ -8,3 +8,4 @@
 """
 
 from .microsoft_office import *
+from .python_plot import *

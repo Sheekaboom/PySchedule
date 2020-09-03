@@ -9,14 +9,22 @@
 
 import copy
 import numpy as np
+import datetime
 
 try:
     import openpyxl
 except ModuleNotFoundError:
     print("Cannot import OpenPyxl (no Excel capability). Try `pip install openpyxl`.")
     
-from ..Tasks import unpack_children_with_levels
-from ..Schedule import Schedule,get_range_ymd,get_datetime_range
+try:
+    from docx import Document
+    from docx.shared import Inches
+    from docx.enum.style import WD_STYLE_TYPE
+except ModuleNotFoundError:
+    print("Cannot import docx (no Word capability). Try `pip install python-docx`.")
+    
+from pyschedule.Tasks import unpack_children_with_levels
+from pyschedule.Schedule import Schedule,get_range_ymd,get_datetime_range
 
 #%% Write schedule to excel
 
@@ -36,6 +44,8 @@ def write_excel(schedule:Schedule,fpath:str,**kwargs):
     ## Now get date/time range 
     years,months,days = get_range_ymd(schedule.start, schedule.end)
     date_range = get_datetime_range(schedule.start,schedule.end)
+    ym = [date.strftime('%Y-%m') for date in date_range]
+    ymu = np.unique(ym)
     time_cols = np.size(months)
     
     # Set up the formatting
@@ -104,8 +114,6 @@ def write_excel(schedule:Schedule,fpath:str,**kwargs):
         ws.column_dimensions[openpyxl.utils.get_column_letter(c)].width = 20
         
     # Now shade the columns for the tasks
-    ym = [date.strftime('%Y-%m') for date in date_range]
-    ymu = np.unique(ym)
     for task_row,t in enumerate(tasks):
         td_range = get_datetime_range(t.start,t.end)
         tdu_range = np.unique([date.strftime('%Y-%m') for date in td_range])
@@ -138,6 +146,90 @@ def write_excel(schedule:Schedule,fpath:str,**kwargs):
             myborder = copy.copy(cell.border)
             myborder.right = thick_border
             cell.border = myborder
+    # Draw borders for 'today'
+    today_str = datetime.datetime.today().strftime('%Y-%m')
+    today_col = np.where(np.array(ymu)==today_str)[0][0]+date_range_col_start
+    today_border = openpyxl.styles.Side(border_style="thick", color="00FF00")
+    for r in range(total_row_start,total_row_end+1):
+        cell = ws.cell(row=r,column=today_col)
+        myborder = copy.copy(cell.border)
+        myborder.right = today_border
+        myborder.left = today_border
+        cell.border = myborder
     
     # finally save it out
     wb.save(filename = fpath)
+    
+    return wb
+    
+
+#%% Write schedule out to word
+
+def write_word(schedule:Schedule,fpath):
+    '''
+    @brief Write out a schedule to a word file
+    @param[in] schedule - schedule to write out
+    @param[in] fpath - path to file to write spreadsheet to
+    '''
+    
+    # Initialize the document and write title info
+    doc = Document()
+    title = doc.add_paragraph('PhD Roadmap',style='Title')
+    
+    # Load in some task info
+    tasks,levels = unpack_children_with_levels(schedule,-1)
+    
+    # add our styles
+    for level in np.unique(levels):
+        level +=2 #start from 2 (0 for title and 1 for top level)
+        ## Add subparagraph style
+        task_heading_style = doc.styles.add_style('task_par_{}'.format(level),WD_STYLE_TYPE.PARAGRAPH)
+        task_heading_style.base_style = doc.styles['Normal']
+        task_heading_style.paragraph_format.left_indent = Inches(0.25*level)
+        ## Add a header style
+        task_heading_style = doc.styles.add_style('task_heading_{}'.format(level),WD_STYLE_TYPE.PARAGRAPH)
+        task_heading_style.base_style = doc.styles['Heading {}'.format(level)]
+        task_heading_style.paragraph_format.left_indent = Inches(0.25*level)
+        task_heading_style.next_paragraph_style = doc.styles['task_par_{}'.format(level)]
+    
+    # now iterate and write out tasks
+    doc.add_paragraph('Task List',style='Heading 1')
+    for task,level in zip(tasks,levels):
+        level = level+2
+        ## write the header
+        task_head = doc.add_paragraph(task['name'],style='task_heading_{}'.format(level))
+        ## Write some properties
+        for k in ['description','progress']:
+            val = task.get(k,None)
+            if val is not None:
+                par = doc.add_paragraph(style='task_par_{}'.format(level))
+                par.add_run('{} :'.format(k.capitalize())).bold=True 
+                par.add_run(val)
+        ## Add timeframe
+        ptime = doc.add_paragraph(style='task_par_{}'.format(level))
+        ptime.add_run('Expected Timeframe: ').bold=True
+        ptime.add_run('{} - {} ({})'.format(task.start.strftime('%Y-%m-%d'),
+                                            task.end.strftime('%Y-%m-%d'),
+                                            task.duration))
+        
+    doc.save(fpath)
+    
+    return doc
+    
+    
+#%% Some testing
+if __name__=='__main__':
+    
+    mydoc = Document()
+    
+    for level in [0,1,2,3,4]:
+        
+        mydoc.add_paragraph('Head{}'.format(level),style='Heading {}'.format(level+1))
+        mydoc.add_paragraph('test paragraph level {}'.format(level))
+    
+
+
+
+
+
+

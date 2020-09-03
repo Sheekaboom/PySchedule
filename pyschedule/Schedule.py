@@ -11,12 +11,6 @@ import datetime
 import json
 import numpy as np
 
-#libs for exporting
-try:
-    import plotly.express as px #REQUIRES PLOTLY 4.9 or ABOVE
-except ModuleNotFoundError:
-    print("Plotly Not Available")
-
 from pyschedule.Tasks import Task, Dependency
 
 #%% Some extended datetime functionality
@@ -44,7 +38,7 @@ def get_range_ymd(start:datetime.datetime,stop:datetime.datetime):
     years = np.unique([date.year for date in dtdates]) #get unique years
     year_split = [[date for date in dtdates if date.year==year] for year in years]
     months = [np.unique([date.month for date in year]) for year in year_split]
-    months_str = [np.unique([date.strftime('%b') for date in year]) for year in year_split]
+    months_str = [[datetime.datetime(1,m,1).strftime('%b') for m in ymonths] for ymonths in months]
     month_split = [[[date for date in year if date.month==month] for month in months[yi]] for yi,year in enumerate(year_split)]
     days = [[[day.strftime('%d') for day in month] for month in year] for year in month_split]
     return years,months_str,days
@@ -139,39 +133,7 @@ class Schedule(Task):
             else:
                 label_names.append(n)
         return label_names
-
-    def plot_plotly(self,level=0,**kwargs):
-        '''@brief plot the gantt chart with plotly'''
-        t0 = self.tasks
-        tasks = []
-        if level>0:
-            for l in range(level):
-                lt = []
-                for t in t0:
-                    lt+= t['children']
-                tasks = lt
-        if level<0:
-            for t in t0:
-                tasks.append(t)
-                tasks += t._unpack_children()
-        info_lists = self._get_as_lists(tasks)
-        names = self._get_label_names(info_lists['nickname'],info_lists['name'])
-        fig = px.timeline(x_start=info_lists['start'],x_end=info_lists['end'], 
-                          y=names, color=info_lists['percent_complete'])
-        fig.update_yaxes(autorange="reversed")
-        fig.update_layout(
-            shapes=[dict(x0=datetime.datetime.today(),
-                         x1=datetime.datetime.today(),
-                         y0=0,y1=1,xref='x',yref='paper',line_width=2)],
-            annotations=[dict(x=datetime.datetime.today(), y=1.1, xref='x',
-                              yref='paper',font=dict(color="black",size=14),
-                              showarrow=False, xanchor='left', 
-                              text='Today ({})'.format(datetime.datetime.today()))]
-            )
-        return fig
             
-            
-        
         
             
 #%% Testing
