@@ -70,6 +70,20 @@ def unpack_children_with_levels(task,level):
         levels.append(level+1)
         levels += clev
     return ctasks,levels
+
+#%% Some useful functionality
+
+def get_current_tasks(task_list,cur_dt=None):
+    '''
+    @brief get the tasks that cover cur_datetime
+    @param[in] task_list - list of tasks to check
+    @param[in/OPT] cur_dt - what datetime to get tasks for. Defaults to datetime.today()
+    @return dict with {'current':[current tasks],'overdue':[overdue tasks without 100% complete]}
+    '''
+    if cur_dt is None: cur_dt = datetime.datetime.today()
+    cur_tasks = [task for task in task_list if task.start < cur_dt and task.end > cur_dt]
+    overdue_tasks = [task for task in task_list if task.end < cur_dt and task.progress['percent']<100]
+    return {'current':cur_tasks,'overdue':overdue_tasks}
     
 #%% Tasks for scheduling
 
@@ -99,7 +113,7 @@ class Task(dict):
         - children - [list of Tasks that are part of this task]
     '''
     
-    undefined_vals = [None,'','None']
+    UNDEFINED_VALS = [None,'','None',[]]
     
     def __init__(self,name:Union[str,dict],start:datetime.datetime=None,end:datetime.datetime=None,
                  duration:datetime.timedelta=None,**kwargs):
@@ -155,13 +169,12 @@ class Task(dict):
         '''@brief convert any datetime strings or durations to datetime objects'''
         datetime_fields = ['start','end']
         duration_fields = ['duration']
-        undefined_types = [None,'','None'] #types that mean the datetime isnt provided
         # fix any datetimes into datetime objects
         for field in datetime_fields:
-            if isinstance(self[field],str) and self[field] not in undefined_types:
+            if isinstance(self[field],str) and self[field] not in self.UNDEFINED_VALS:
                 self[field] = datetime.datetime.strptime(self[field],'%Y-%m-%d %H:%M:%S')
         for field in duration_fields:
-            if isinstance(self[field],str) and self[field] not in undefined_types:
+            if isinstance(self[field],str) and self[field] not in self.UNDEFINED_VALS:
                 td = [int(v) for v in re.split('(d|:)',self[field])[::2]]
                 self[field] = datetime.timedelta(days=td[0],hours=td[1],minutes=td[2],seconds=td[3])
         
@@ -238,7 +251,7 @@ class Task(dict):
         '''
         #try and get from the value
         start = self.get('start',None)
-        if start not in self.undefined_vals:
+        if start not in self.UNDEFINED_VALS:
             return start
         #try and get from children
         child_times = [child.start for child in self['children']]
@@ -262,7 +275,7 @@ class Task(dict):
         '''
         #try and get from the value
         end = self.get('end',None)
-        if end not in self.undefined_vals:
+        if end not in self.UNDEFINED_VALS:
             return end
         #try and get from children
         child_times = [child.end for child in self['children'] if child.end is not None]
@@ -310,16 +323,16 @@ class Task(dict):
     def progress(self):
         '''@brief return the progress. If not defined try to average children'''
         progress_dict = self.get('progress',{'percent':None,'notes':''})
-        if progress_dict['percent'] in self.undefined_vals:
+        if progress_dict['percent'] in self.UNDEFINED_VALS:
             progress_dict['percent'] = np.round(np.mean([st.progress['percent'] for st in self['children']]))
             progress_dict['notes'] = '#mean([children[progress]])'
-        return progress_dict
+        return TaskProgress(progress_dict)
     
     @property
     def nickname(self):
         '''@brief return the nickname or name if it is none'''
         nick = self.get('nickname',None)
-        if nick in self.undefined_vals:
+        if nick in self.UNDEFINED_VALS:
             nick = self.get('name')
         return nick
     
@@ -336,6 +349,19 @@ class TaskEncoder(json.JSONEncoder):
             return str(obj).replace(' days, ','d')
         # Let the base class default method raise the TypeError
         return json.JSONEncoder.default(self, obj)
+
+class TaskProgress(dict):
+    '''@brief progress class of the form {'percent':int,'notes':'notes'}'''
+    def __str__(self):
+        '''@brief string representation. if notes are '' or start with #, they are ignored'''
+        perc_str = '{}%'.format(int(np.round(self['percent'])))
+        notes = self.get('notes',None)
+        if notes in Task.UNDEFINED_VALS or notes[0]=='#': #notes is NA or commented
+            out_str = perc_str
+        else:
+            out_str = '{}, {}'.format(perc_str,notes)
+        return out_str
+
 
 #%% Dependencies
 class Dependency(dict):

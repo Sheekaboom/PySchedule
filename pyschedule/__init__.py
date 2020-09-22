@@ -6,6 +6,3 @@
 
 @author: aweis
 """
-
-from Schedule import Schedule
-from Tasks import Tasks

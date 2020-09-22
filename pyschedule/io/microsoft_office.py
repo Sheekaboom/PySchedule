@@ -108,7 +108,7 @@ def write_excel(schedule:Schedule,fpath:str,**kwargs):
     for t,l in zip(tasks,levels):
         mycell = ws.cell(row=task_row,column=task_col+l,value=t.nickname)
         mycell.alignment = openpyxl.styles.Alignment(wrap_text=True)
-        print(' '*2*l+t['name'])
+        #print(' '*2*l+t['name'])
         task_row += 1
     for c in range(task_col_start,task_col_end+1): 
         ws.column_dimensions[openpyxl.utils.get_column_letter(c)].width = 20
@@ -174,43 +174,56 @@ def write_word(schedule:Schedule,fpath):
     
     # Initialize the document and write title info
     doc = Document()
-    title = doc.add_paragraph('PhD Roadmap',style='Title')
+    title = doc.add_paragraph(schedule['name'],style='Title')
+    
+    # Add some top level info
+    for k in ['description']:
+        val = schedule.get(k,None)
+        if val not in schedule.UNDEFINED_VALS:
+            par = doc.add_paragraph('{}'.format(k.capitalize()),style='Heading 1')
+            doc.add_paragraph(str(val),style='Normal')        
     
     # Load in some task info
     tasks,levels = unpack_children_with_levels(schedule,-1)
     
     # add our styles
     for level in np.unique(levels):
-        level +=2 #start from 2 (0 for title and 1 for top level)
         ## Add subparagraph style
         task_heading_style = doc.styles.add_style('task_par_{}'.format(level),WD_STYLE_TYPE.PARAGRAPH)
         task_heading_style.base_style = doc.styles['Normal']
         task_heading_style.paragraph_format.left_indent = Inches(0.25*level)
         ## Add a header style
         task_heading_style = doc.styles.add_style('task_heading_{}'.format(level),WD_STYLE_TYPE.PARAGRAPH)
-        task_heading_style.base_style = doc.styles['Heading {}'.format(level)]
+        task_heading_style.base_style = doc.styles['Heading {}'.format(level+2)] #+2 to start at heading 2
         task_heading_style.paragraph_format.left_indent = Inches(0.25*level)
         task_heading_style.next_paragraph_style = doc.styles['task_par_{}'.format(level)]
     
     # now iterate and write out tasks
     doc.add_paragraph('Task List',style='Heading 1')
     for task,level in zip(tasks,levels):
-        level = level+2
+        level = level
         ## write the header
         task_head = doc.add_paragraph(task['name'],style='task_heading_{}'.format(level))
-        ## Write some properties
-        for k in ['description','progress']:
+        ## Write some static properties
+        for k in ['description']:
             val = task.get(k,None)
-            if val is not None:
+            if val not in task.UNDEFINED_VALS:
                 par = doc.add_paragraph(style='task_par_{}'.format(level))
                 par.add_run('{} :'.format(k.capitalize())).bold=True 
-                par.add_run(val)
+                par.add_run(str(val))
+        ## Write dynamic properties
+        for k in ['progress']:
+            val = getattr(task,k)
+            if val not in task.UNDEFINED_VALS:
+                par = doc.add_paragraph(style='task_par_{}'.format(level))
+                par.add_run('{} :'.format(k.capitalize())).bold=True 
+                par.add_run(str(val))
         ## Add timeframe
         ptime = doc.add_paragraph(style='task_par_{}'.format(level))
         ptime.add_run('Expected Timeframe: ').bold=True
-        ptime.add_run('{} - {} ({})'.format(task.start.strftime('%Y-%m-%d'),
+        ptime.add_run('{} - {} ({} days)'.format(task.start.strftime('%Y-%m-%d'),
                                             task.end.strftime('%Y-%m-%d'),
-                                            task.duration))
+                                            task.duration.days))
         
     doc.save(fpath)
     
